@@ -1,0 +1,16 @@
+name: discourse
+summary: A next-generation discussion forum.
+maintainer: Nate Finch <nate.finch@gmail.com>
+description: |
+  Discourse is the 100% open source, next-generation discussion platform
+  built for the next 10 years of the Internet. Whenever you need a mailing
+  list, a forum to discuss something, a chat room where you can type paragraphs,
+  then consider Discourse.
+categories:
+  - application
+provides:
+  website:
+    interface: http
+peers:
+  discourse:
+    interface: discourse

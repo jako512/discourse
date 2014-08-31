@@ -1,0 +1,7 @@
+options:
+  admins:
+    type: string
+    default: ""
+    description: | 
+      Comma separated list of usernames who should be an admin. eg: "codinghorror,sam,eviltrout"
+
