@@ -41,7 +41,7 @@ func Main(hook string) error {
 	case "config-changed":
 		return configChanged()
 
-	case "start", "UPGRADE-CHARM", "STOP":
+	case "start", "upgrade-charm", "stop":
 		fmt.Printf("Ignoring hook: %s\n", hook)
 		return nil
 

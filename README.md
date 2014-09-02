@@ -5,11 +5,9 @@ This charm installs the [Discourse](http://discourse.org) application, a modern 
 
 # Overview
 
-This charm deploys a docker container that contains the discourse software.
+This charm deploys the Discourse standalone docker container as per the [Install Guide](https://github.com/discourse/discourse/blob/master/docs/INSTALL-digital-ocean.md).
 
-1 GB RAM is required (with swap), 2 GB is recommended.
-
-Also remember to check the [icon guidelines](https://juju.ubuntu.com/docs/authors-charm-icon.html) so that your charm looks good in the Juju GUI.
+Note that because this charm deploys a docker container, it cannot be deployed to a container created by Juju.  It must be deployed to the base machine.
 
 # Install
 
@@ -17,6 +15,9 @@ After you've successfully bootstrapped an environment, run the following:
 
     juju deploy cs:/~natefinch/discourse
     juju expose discourse
+
+
+    
 
 
 
