@@ -1,3 +1,18 @@
+// This is the code that builds the hooks executable for the Discourse Juju
+// charm.  To modify what code gets run, and/or debug on the deployed unit,
+// you'll need to install go, set up GOPATH, and get the dependencies:
+//
+//   apt-get install golang-go git
+//   export GOPATH=$HOME
+//   go get gopkg.in/yaml.v1
+//
+// Now you can build the hooks file:
+//
+//   go build hooks.go
+//
+// Or just run it directly like a script:
+//
+//   go run hooks.go
 package main
 
 import (
@@ -28,7 +43,7 @@ var (
 )
 
 func main() {
-	if err := Main(os.Getenv("JUJU_HOOK_NAME")); err != nil {
+	if err := Main(filepath.Base(os.Args[0])); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -43,12 +58,11 @@ func Main(hook string) error {
 		return configChanged()
 
 	case "start", "upgrade-charm", "stop":
-		fmt.Printf("Ignoring hook: %s\n", hook)
+		fmt.Printf("Ignoring hook: %q\n", hook)
 		return nil
 
 	default:
-		fmt.Printf("Ignoring unknown hook: %s\n", hook)
-		return nil
+		return fmt.Errorf("Unknown hook: %q\n", hook)
 	}
 }
 
@@ -134,13 +148,13 @@ func install() error {
 }
 
 type config struct {
-	DISCOURSE_DEVELOPER_EMAILS *string `json:"omitempty"`
-	DISCOURSE_SMTP_ADDRESS     *string `json:"omitempty"`
-	DISCOURSE_SMTP_PORT        *int    `json:"omitempty"`
-	DISCOURSE_SMTP_USER_NAME   *string `json:"omitempty"`
-	DISCOURSE_SMTP_PASSWORD    *string `json:"omitempty"`
-	UNICORN_WORKERS            *int    `json:"omitempty"`
-	DISCOURSE_CDN_URL          *string `json:"omitempty"`
+	DISCOURSE_DEVELOPER_EMAILS *string `json:"DISCOURSE_DEVELOPER_EMAILS,omitempty"`
+	DISCOURSE_SMTP_ADDRESS     *string `json:"DISCOURSE_SMTP_ADDRESS,omitempty"`
+	DISCOURSE_SMTP_PORT        *int    `json:"DISCOURSE_SMTP_PORT,omitempty"`
+	DISCOURSE_SMTP_USER_NAME   *string `json:"DISCOURSE_SMTP_USER_NAME,omitempty"`
+	DISCOURSE_SMTP_PASSWORD    *string `json:"DISCOURSE_SMTP_PASSWORD,omitempty"`
+	UNICORN_WORKERS            *int    `json:"UNICORN_WORKERS,omitempty"`
+	DISCOURSE_CDN_URL          *string `json:"DISCOURSE_CDN_URL,omitempty"`
 }
 
 func configChanged() error {
@@ -194,6 +208,8 @@ func configChanged() error {
 		env["DISCOURSE_CDN_URL"] = *cfg.DISCOURSE_CDN_URL
 	}
 
+	fmt.Printf("Updating config: %v\n", env)
+
 	vals["env"] = env
 
 	out, err = yaml.Marshal(vals)
@@ -205,7 +221,8 @@ func configChanged() error {
 		return fmt.Errorf("Error writing app.yaml changes: %s", err)
 	}
 
-	if err := launcher("restart"); err != nil {
+	fmt.Println("Restarting discourse...")
+	if err := launcher("restart", "app"); err != nil {
 		return fmt.Errorf("Error restarting discourse: %s", err)
 	}
 

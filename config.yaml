@@ -1,31 +1,25 @@
 options:
-	DISCOURSE_DEVELOPER_EMAILS:
-	type: string
-		default: ""
-		description: | 
-			Comma separated list of email addresses who should be an admin. eg:
-			"foo@example.com,bar@example.com"
-	DISCOURSE_SMTP_ADDRESS:
-		type: string
-		default: ""
-		description: The hostname where emails should be delivered.
-	DISCOURSE_SMTP_PORT:
-		type: int
-		default: 0
-		description: The port for the email server.
-	DISCOURSE_SMTP_USER_NAME:
-		type: string
-		default: ""
-		description: Username for the email server.
-	DISCOURSE_SMTP_PASSWORD:
-		type: string
-		default: ""
-		description: Password for the email server.
-	UNICORN_WORKERS:
-		type: int
-		default: 3
-		description: Number of unicorn workers to use.
-	DISCOURSE_CDN_URL:
-		type: string
-		default: ""
-		description: Content Delivery Network hostname to use.
+  UNICORN_WORKERS:
+    type: int
+    default: 3
+    description: Number of unicorn workers to use.
+  DISCOURSE_DEVELOPER_EMAILS:
+    type: string
+    description: | 
+      Comma separated list of email addresses who should be an admin. eg:
+      "foo@example.com,bar@example.com"
+  DISCOURSE_SMTP_ADDRESS:
+    type: string
+    description: The hostname where emails should be delivered.
+  DISCOURSE_SMTP_PORT:
+    type: int
+    description: The port for the email server.
+  DISCOURSE_SMTP_USER_NAME:
+    type: string
+    description: Username for the email server.
+  DISCOURSE_SMTP_PASSWORD:
+    type: string
+    description: Password for the email server.
+  DISCOURSE_CDN_URL:
+    type: string
+    description: Content Delivery Network hostname to use.
