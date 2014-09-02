@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v1"
 )
@@ -171,7 +172,8 @@ func configChanged() error {
 	}
 
 	if cfg.DISCOURSE_DEVELOPER_EMAILS != nil {
-		env["DISCOURSE_DEVELOPER_EMAILS"] = *cfg.DISCOURSE_DEVELOPER_EMAILS
+		emails := strings.Split(*cfg.DISCOURSE_DEVELOPER_EMAILS, ",")
+		env["DISCOURSE_DEVELOPER_EMAILS"] = emails
 	}
 	if cfg.DISCOURSE_SMTP_ADDRESS != nil {
 		env["DISCOURSE_SMTP_ADDRESS"] = *cfg.DISCOURSE_SMTP_ADDRESS
