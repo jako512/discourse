@@ -128,11 +128,27 @@ func install() error {
 	}
 
 	// This lets us fool the bootstrap script into bootstrapping without real
-	// email info. We'll replace it later via config-set.
+	// email info if it isn't supplied at bootstrap time. We can replace it
+	// later via config-set.
 	data = bytes.Replace(data, []byte("smtp.example.com"), []byte("foo.example.com"), -1)
+
+	// run it through yaml so we have the same output format as we will when the
+	// config changes.
+	vals := map[string]interface{}{}
+	yaml.Unmarshal(data, &vals)
+
+	data, err = yaml.Marshal(vals)
+	if err != nil {
+		return fmt.Errorf("Error exporting config from yaml: %s", err)
+	}
 
 	if err := ioutil.WriteFile(appYml, data, 0644); err != nil {
 		return fmt.Errorf("Error writing app.yml: %s", err)
+	}
+
+	// Now apply any configuration settings specified at deploy time.
+	if _, err := writeNewConfig(); err != nil {
+		return err
 	}
 
 	fmt.Println("Bootstrapping discourse...")
@@ -158,24 +174,40 @@ type config struct {
 }
 
 func configChanged() error {
+	changed, err := writeNewConfig()
+	if err != nil {
+		return err
+	}
+	if !changed {
+		fmt.Println("No config changes detected.")
+		return nil
+	}
+	fmt.Println("Config changes dectected. Restarting discourse...")
+	if err := launcher("restart", "app"); err != nil {
+		return fmt.Errorf("Error restarting discourse: %s", err)
+	}
+	return nil
+}
+
+func writeNewConfig() (changed bool, err error) {
 	out, err := exec.Command("config-get", "--format", "json").CombinedOutput()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, out)
-		return fmt.Errorf("Error calling config-get: %s", err)
+		return false, fmt.Errorf("Error calling config-get: %s", err)
 	}
 
 	cfg := config{}
 	if err := json.Unmarshal(out, &cfg); err != nil {
-		return fmt.Errorf("Can't parse output from config-get: %s", err)
+		return false, fmt.Errorf("Can't parse output from config-get: %s", err)
 	}
 
-	out, err = ioutil.ReadFile(appYml)
+	fileContents, err := ioutil.ReadFile(appYml)
 	if err != nil {
-		return fmt.Errorf("Can't read discourse config file: %s", err)
+		return false, fmt.Errorf("Can't read discourse config file: %s", err)
 	}
 
 	vals := map[string]interface{}{}
-	yaml.Unmarshal(out, &vals)
+	yaml.Unmarshal(fileContents, &vals)
 
 	// env is a sub-map in the yaml where our values get stored.
 	env := map[string]interface{}{}
@@ -212,21 +244,18 @@ func configChanged() error {
 
 	vals["env"] = env
 
-	out, err = yaml.Marshal(vals)
+	newContents, err := yaml.Marshal(vals)
 	if err != nil {
-		return fmt.Errorf("Can't marshal app.yaml changes: %s", err)
+		return false, fmt.Errorf("Can't marshal app.yaml changes: %s", err)
 	}
 
+	if bytes.Equal(fileContents, newContents) {
+		return false, nil
+	}
 	if err := ioutil.WriteFile(appYml, out, 0644); err != nil {
-		return fmt.Errorf("Error writing app.yaml changes: %s", err)
+		return true, fmt.Errorf("Error writing app.yaml changes: %s", err)
 	}
-
-	fmt.Println("Restarting discourse...")
-	if err := launcher("restart", "app"); err != nil {
-		return fmt.Errorf("Error restarting discourse: %s", err)
-	}
-
-	return nil
+	return true, nil
 }
 
 func runner(name string) func(args ...string) error {
