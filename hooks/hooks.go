@@ -37,6 +37,7 @@ var (
 
 	aptget   = runner("apt-get")
 	aptkey   = runner("apt-key")
+	openPort = runner("open-port")
 	git      = runner("git")
 	service  = runner("service")
 	launcher = runner(filepath.Join(dir, "launcher"))
@@ -67,6 +68,12 @@ func Main(hook string) error {
 }
 
 func install() error {
+	fmt.Println("Calling apt-get update...")
+	err := aptget("update")
+	if err != nil {
+		return fmt.Errorf("failed running apt-get update: %s", err)
+	}
+
 	fmt.Println("Installing git...")
 	if err := aptget("install", "-y", "git"); err != nil {
 		return fmt.Errorf("failed installing git: %s", err)
@@ -78,7 +85,7 @@ func install() error {
 	}
 
 	fmt.Println("Adding docker key...")
-	err := aptkey("adv", "--keyserver", "hkp://keyserver.ubuntu.com:80", "--recv-keys", "36A1D7869245C8950F966E92D8576A8BA88D21E9")
+	err = aptkey("adv", "--keyserver", "hkp://keyserver.ubuntu.com:80", "--recv-keys", "36A1D7869245C8950F966E92D8576A8BA88D21E9")
 	if err != nil {
 		return fmt.Errorf("failed adding docker key: %s", err)
 	}
@@ -90,7 +97,8 @@ func install() error {
 	}
 
 	fmt.Println("Calling apt-get update...")
-	if err := aptget("update"); err != nil {
+	err = aptget("update")
+	if err != nil {
 		return fmt.Errorf("failed running apt-get update: %s", err)
 	}
 
@@ -149,6 +157,10 @@ func install() error {
 	// Now apply any configuration settings specified at deploy time.
 	if _, err := writeNewConfig(); err != nil {
 		return err
+	}
+
+	if err := openPort("80"); err != nil {
+		return fmt.Errorf("failed running open-port: %s", err)
 	}
 
 	fmt.Println("Bootstrapping discourse...")
