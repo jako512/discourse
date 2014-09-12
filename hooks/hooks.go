@@ -227,9 +227,6 @@ func writeNewConfig() (changed bool, err error) {
 		env["DISCOURSE_CDN_URL"] = *cfg.DISCOURSE_CDN_URL
 	}
 
-	fmt.Printf("Updating config 'env' with: %#v\n", env)
-	fmt.Printf("Config: %#v\n", vals)
-
 	newContents, err := yaml.Marshal(vals)
 	if err != nil {
 		return false, fmt.Errorf("Can't marshal app.yaml changes: %s", err)
