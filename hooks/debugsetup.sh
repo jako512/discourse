@@ -5,6 +5,6 @@
 # to rebuild the hooks executable.
 
 apt-get update
-apt-get install golang-go git
+apt-get install -y golang-go git
 export GOPATH=$HOME
 go get gopkg.in/yaml.v1
