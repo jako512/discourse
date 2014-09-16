@@ -20,6 +20,11 @@ After you've successfully bootstrapped an environment, run the following:
     juju deploy cs:/~natefinch/discourse
     juju expose discourse
 
+Note that it is normal and expected for the install process to take quite a long
+time.  On an m1.small on AWS, it takes approximately 20 minutes from deploy to
+being able to bring up Discourse in a browser.  Obviously this time may vary a
+lot depending on any number of variables.
+
 # Debugging
 
 If you experience problems and want to add debugging output to the script,
