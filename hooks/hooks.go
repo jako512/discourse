@@ -1,18 +1,15 @@
 // This is the code that builds the hooks executable for the Discourse Juju
-// charm.  To modify what code gets run, and/or debug on the deployed unit,
-// you'll need to install go, set up GOPATH, and get the dependencies:
+// charm.  To modify what code gets run (fix bugs, add debug output, etc),
+// you'll need to install go, set up GOPATH, and get the dependencies.  The
+// debugSetup.sh does all that for you.  Just source it by running
 //
-//   apt-get install golang-go git
-//   export GOPATH=$HOME
-//   go get gopkg.in/yaml.v1
+//   source ./debugSetup.sh
 //
-// Now you can build the hooks file:
+// And now your environment is set up to rebuild the hooks executable. To do so,
+// make the modifications you want, and run
 //
 //   go build hooks.go
 //
-// Or just run it directly like a script:
-//
-//   go run hooks.go
 package main
 
 import (
@@ -40,9 +37,8 @@ var (
 	aptkey  = runner("apt-key")
 	git     = runner("git")
 	service = runner("service")
-	uname   = runner("uname")
 
-	launcher = runner(filepath.Join(dir, "launcher"))
+	launcher = defaultRunner("bash", filepath.Join(dir, "launcher"))
 )
 
 func main() {
@@ -70,6 +66,8 @@ func Main(hook string) error {
 }
 
 func install() error {
+	fmt.Println("Installing Discourse.")
+
 	if err := installDocker(); err != nil {
 		return err
 	}
@@ -139,6 +137,9 @@ func install() error {
 	if err := launcher("start", "app"); err != nil {
 		return fmt.Errorf("Error starting discourse: %s", err)
 	}
+
+	fmt.Println("Finished installing discourse.")
+
 	return nil
 }
 
@@ -236,6 +237,7 @@ func writeNewConfig() (changed bool, err error) {
 	if err := ioutil.WriteFile(appYml, newContents, 0644); err != nil {
 		return true, fmt.Errorf("Error writing app.yaml changes: %s", err)
 	}
+
 	return true, nil
 }
 
@@ -307,6 +309,15 @@ func runner(name string) func(args ...string) error {
 	}
 }
 
+func defaultRunner(name string, args ...string) func(args ...string) error {
+	return func(moreArgs ...string) error {
+		cmd := exec.Command(name, append(args, moreArgs...)...)
+		cmd.Stderr = os.Stderr
+		cmd.Stdout = os.Stdout
+		return cmd.Run()
+	}
+}
+
 func open(port int) error {
 	out, err := exec.Command("open-port", strconv.Itoa(port)).CombinedOutput()
 	if err != nil {
@@ -319,12 +330,12 @@ func open(port int) error {
 }
 
 // this whole structure exists because we need to tell goyaml to output the
-// "expose" ports as an flow-style array so that the strings are always quoted
-// because otherwise something like 2222:22 is considered a base 60 float (like
-// hours:minutes) and not a string.  Goyaml doesn't support base 60 floats, so
-// it doesn't care, but the ruby yaml parser that discourse uses does support it
-// and therefore does care (and treats it as a number unless it's explicitly
-// quoted).
+// "expose" ports as a flow-style array so that the strings are always quoted
+// Otherwise something like 2222:22 is considered a base 60 float (like
+// hours:minutes) by other parsers and not a string.  Goyaml doesn't support
+// base 60 floats, so it doesn't care, but the ruby yaml parser that discourse
+// uses does support it and therefore does care (and treats it as a number
+// unless it's explicitly quoted) and all hell breaks loose.  Thanks, yaml.
 type discourseConfig struct {
 	Templates []string                      `yaml:"templates,omitempty"`
 	Expose    []string                      `yaml:"expose,flow,omitempty"`
