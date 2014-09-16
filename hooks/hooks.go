@@ -18,7 +18,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -70,12 +69,6 @@ func Main(hook string) error {
 	}
 }
 
-// We need this because gopkg.in/yaml.v1 produces output that other parsers
-// don't like unless it's in "flow" mode.
-type configVals struct {
-	Vals map[interface{}]interface{} `yaml:",flow"`
-}
-
 func install() error {
 	if err := installDocker(); err != nil {
 		return err
@@ -114,12 +107,12 @@ func install() error {
 
 	// run it through yaml so we have the same output format as we will when the
 	// config changes.
-	vals := configVals{map[interface{}]interface{}{}}
-	if err := yaml.Unmarshal(data, &vals.Vals); err != nil {
+	vals := discourseConfig{}
+	if err := yaml.Unmarshal(data, &vals); err != nil {
 		return fmt.Errorf("Error Unmarshalling standalone.yml: %s", err)
 	}
 
-	data, err = yaml.Marshal(vals.Vals)
+	data, err = yaml.Marshal(vals)
 	if err != nil {
 		return fmt.Errorf("Error exporting config from yaml: %s", err)
 	}
@@ -199,45 +192,40 @@ func writeNewConfig() (changed bool, err error) {
 		return false, fmt.Errorf("Can't read discourse config file: %s", err)
 	}
 
-	vals := configVals{map[interface{}]interface{}{}}
-	if err := yaml.Unmarshal(fileContents, &vals.Vals); err != nil {
+	vals := discourseConfig{}
+	if err := yaml.Unmarshal(fileContents, &vals); err != nil {
 		return false, fmt.Errorf("Error unmarshalling app.yml: %s", err)
 	}
 
 	// env is a sub-map in the yaml where our values get stored.
-	v, ok := vals.Vals["env"]
-	if !ok {
-		return false, errors.New("Missing 'env' section of app.yml")
-	}
-	env, ok := v.(map[interface{}]interface{})
-	if !ok {
-		return false, fmt.Errorf("unexpected type for env: %#v\n", v)
+	if vals.Env == nil {
+		vals.Env = map[interface{}]interface{}{}
 	}
 
 	if cfg.DISCOURSE_DEVELOPER_EMAILS != nil {
 		emails := strings.Split(*cfg.DISCOURSE_DEVELOPER_EMAILS, ",")
-		env["DISCOURSE_DEVELOPER_EMAILS"] = emails
+		vals.Env["DISCOURSE_DEVELOPER_EMAILS"] = emails
 	}
 	if cfg.DISCOURSE_SMTP_ADDRESS != nil {
-		env["DISCOURSE_SMTP_ADDRESS"] = *cfg.DISCOURSE_SMTP_ADDRESS
+		vals.Env["DISCOURSE_SMTP_ADDRESS"] = *cfg.DISCOURSE_SMTP_ADDRESS
 	}
 	if cfg.DISCOURSE_SMTP_PORT != nil {
-		env["DISCOURSE_SMTP_PORT"] = *cfg.DISCOURSE_SMTP_PORT
+		vals.Env["DISCOURSE_SMTP_PORT"] = *cfg.DISCOURSE_SMTP_PORT
 	}
 	if cfg.DISCOURSE_SMTP_USER_NAME != nil {
-		env["DISCOURSE_SMTP_USER_NAME"] = *cfg.DISCOURSE_SMTP_USER_NAME
+		vals.Env["DISCOURSE_SMTP_USER_NAME"] = *cfg.DISCOURSE_SMTP_USER_NAME
 	}
 	if cfg.DISCOURSE_SMTP_PASSWORD != nil {
-		env["DISCOURSE_SMTP_PASSWORD"] = *cfg.DISCOURSE_SMTP_PASSWORD
+		vals.Env["DISCOURSE_SMTP_PASSWORD"] = *cfg.DISCOURSE_SMTP_PASSWORD
 	}
 	if cfg.UNICORN_WORKERS != nil {
-		env["UNICORN_WORKERS"] = *cfg.UNICORN_WORKERS
+		vals.Env["UNICORN_WORKERS"] = *cfg.UNICORN_WORKERS
 	}
 	if cfg.DISCOURSE_CDN_URL != nil {
-		env["DISCOURSE_CDN_URL"] = *cfg.DISCOURSE_CDN_URL
+		vals.Env["DISCOURSE_CDN_URL"] = *cfg.DISCOURSE_CDN_URL
 	}
 
-	newContents, err := yaml.Marshal(vals.Vals)
+	newContents, err := yaml.Marshal(vals)
 	if err != nil {
 		return false, fmt.Errorf("Can't marshal app.yaml changes: %s", err)
 	}
@@ -328,4 +316,21 @@ func open(port int) error {
 		}
 	}
 	return nil
+}
+
+// this whole structure exists because we need to tell goyaml to output the
+// "expose" ports as an flow-style array so that the strings are always quoted
+// because otherwise something like 2222:22 is considered a base 60 float (like
+// hours:minutes) and not a string.  Goyaml doesn't support base 60 floats, so
+// it doesn't care, but the ruby yaml parser that discourse uses does support it
+// and therefore does care (and treats it as a number unless it's explicitly
+// quoted).
+type discourseConfig struct {
+	Templates []string                      `yaml:"templates,omitempty"`
+	Expose    []string                      `yaml:"expose,flow,omitempty"`
+	Params    map[interface{}]interface{}   `yaml:"params,omitempty"`
+	Env       map[interface{}]interface{}   `yaml:"env,omitempty"`
+	Volumes   []map[interface{}]interface{} `yaml:"volumes,omitempty"`
+	Hooks     map[interface{}]interface{}   `yaml:"hooks,omitempty"`
+	Run       map[interface{}]interface{}   `yaml:"run,omitempty"`
 }
