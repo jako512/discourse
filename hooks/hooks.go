@@ -70,6 +70,12 @@ func Main(hook string) error {
 	}
 }
 
+// We need this because gopkg.in/yaml.v1 produces output that other parsers
+// don't like unless it's in "flow" mode.
+type configVals struct {
+	Vals map[interface{}]interface{} `yaml:",flow"`
+}
+
 func install() error {
 	if err := installDocker(); err != nil {
 		return err
@@ -108,10 +114,12 @@ func install() error {
 
 	// run it through yaml so we have the same output format as we will when the
 	// config changes.
-	vals := map[interface{}]interface{}{}
-	yaml.Unmarshal(data, vals)
+	vals := configVals{map[interface{}]interface{}{}}
+	if err := yaml.Unmarshal(data, &vals.Vals); err != nil {
+		return fmt.Errorf("Error Unmarshalling standalone.yml: %s", err)
+	}
 
-	data, err = yaml.Marshal(vals)
+	data, err = yaml.Marshal(vals.Vals)
 	if err != nil {
 		return fmt.Errorf("Error exporting config from yaml: %s", err)
 	}
@@ -191,11 +199,13 @@ func writeNewConfig() (changed bool, err error) {
 		return false, fmt.Errorf("Can't read discourse config file: %s", err)
 	}
 
-	vals := map[interface{}]interface{}{}
-	yaml.Unmarshal(fileContents, vals)
+	vals := configVals{map[interface{}]interface{}{}}
+	if err := yaml.Unmarshal(fileContents, &vals.Vals); err != nil {
+		return false, fmt.Errorf("Error unmarshalling app.yml: %s", err)
+	}
 
 	// env is a sub-map in the yaml where our values get stored.
-	v, ok := vals["env"]
+	v, ok := vals.Vals["env"]
 	if !ok {
 		return false, errors.New("Missing 'env' section of app.yml")
 	}
@@ -227,7 +237,7 @@ func writeNewConfig() (changed bool, err error) {
 		env["DISCOURSE_CDN_URL"] = *cfg.DISCOURSE_CDN_URL
 	}
 
-	newContents, err := yaml.Marshal(vals)
+	newContents, err := yaml.Marshal(vals.Vals)
 	if err != nil {
 		return false, fmt.Errorf("Can't marshal app.yaml changes: %s", err)
 	}
