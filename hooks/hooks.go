@@ -3,7 +3,7 @@
 // you'll need to install go, set up GOPATH, and get the dependencies.  The
 // debugSetup.sh does all that for you.  Just source it by running
 //
-//   source ./debugSetup.sh
+//   source ./debugsetup.sh
 //
 // And now your environment is set up to rebuild the hooks executable. To do so,
 // make the modifications you want, and run
@@ -38,11 +38,15 @@ var (
 	git     = runner("git")
 	service = runner("service")
 
-	launcher = defaultRunner("bash", filepath.Join(dir, "launcher"))
+	launcher = bash(filepath.Join(dir, "launcher"))
 )
 
 func main() {
-	if err := Main(filepath.Base(os.Args[0])); err != nil {
+	if len(os.Args) != 2 {
+		fmt.Println(os.Stderr, "usage: hooks [install || config-changed]")
+		os.Exit(1)
+	}
+	if err := Main(os.Args[1]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -56,9 +60,12 @@ func Main(hook string) error {
 	case "config-changed":
 		return configChanged()
 
-	case "start", "upgrade-charm", "stop":
+	case "upgrade-charm":
 		fmt.Printf("Ignoring hook: %q\n", hook)
 		return nil
+
+	case "start", "stop":
+		return fmt.Errorf("Hook %q should not execute via hooks.go.", hook)
 
 	default:
 		return fmt.Errorf("Unknown hook: %q\n", hook)
@@ -105,12 +112,10 @@ func install() error {
 
 	// run it through yaml so we have the same output format as we will when the
 	// config changes.
-	vals := discourseConfig{}
-	if err := yaml.Unmarshal(data, &vals); err != nil {
-		return fmt.Errorf("Error Unmarshalling standalone.yml: %s", err)
-	}
 
-	data, err = yaml.Marshal(vals)
+	dc, err := parseDiscourseConfig(data)
+
+	data, err = yaml.Marshal(dc)
 	if err != nil {
 		return fmt.Errorf("Error exporting config from yaml: %s", err)
 	}
@@ -120,7 +125,12 @@ func install() error {
 	}
 
 	// Now apply any configuration settings specified at deploy time.
-	if _, err := writeNewConfig(); err != nil {
+	cfg, err := getCharmConfig()
+	if err != nil {
+		return err
+	}
+
+	if _, err := writeNewConfig(cfg); err != nil {
 		return err
 	}
 
@@ -143,9 +153,10 @@ func install() error {
 	return nil
 }
 
-type config struct {
+type charmConfig struct {
 	DISCOURSE_DEVELOPER_EMAILS *string `json:"DISCOURSE_DEVELOPER_EMAILS,omitempty"`
 	DISCOURSE_SMTP_ADDRESS     *string `json:"DISCOURSE_SMTP_ADDRESS,omitempty"`
+	DISCOURSE_HOSTNAME         *string `json:"DISCOURSE_HOSTNAME,omitempty"`
 	DISCOURSE_SMTP_PORT        *int    `json:"DISCOURSE_SMTP_PORT,omitempty"`
 	DISCOURSE_SMTP_USER_NAME   *string `json:"DISCOURSE_SMTP_USER_NAME,omitempty"`
 	DISCOURSE_SMTP_PASSWORD    *string `json:"DISCOURSE_SMTP_PASSWORD,omitempty"`
@@ -153,8 +164,15 @@ type config struct {
 	DISCOURSE_CDN_URL          *string `json:"DISCOURSE_CDN_URL,omitempty"`
 }
 
+type discourseConfig map[interface{}]interface{}
+
 func configChanged() error {
-	changed, err := writeNewConfig()
+	cfg, err := getCharmConfig()
+	if err != nil {
+		return err
+	}
+
+	changed, err := writeNewConfig(cfg)
 	if err != nil {
 		return err
 	}
@@ -162,30 +180,33 @@ func configChanged() error {
 		fmt.Println("No config changes detected.")
 		return nil
 	}
-	fmt.Println("Config changes dectected. Restarting discourse...")
-	if err := launcher("restart", "app"); err != nil {
-		return fmt.Errorf("Error restarting discourse: %s", err)
+	fmt.Println("Config changes dectected. Rebuilding discourse container...")
+	if err := launcher("rebuild", "app"); err != nil {
+		return fmt.Errorf("Error rebuilding discourse: %s", err)
 	}
 	return nil
 }
 
-func writeNewConfig() (changed bool, err error) {
+func getCharmConfig() ([]byte, error) {
 	out, err := exec.Command("config-get", "--format", "json").CombinedOutput()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, out)
-		return false, fmt.Errorf("Error calling config-get: %s", err)
+		return nil, fmt.Errorf("Error calling config-get: %s", err)
 	}
+	return out, nil
+}
 
-	if len(out) == 0 {
+func writeNewConfig(b []byte) (changed bool, err error) {
+	if len(b) == 0 {
 		fmt.Println("No config set.")
 		return false, nil
 	}
 
 	fmt.Println("Updating config.")
 
-	cfg := config{}
-	if err := json.Unmarshal(out, &cfg); err != nil {
-		return false, fmt.Errorf("Can't parse output from config-get: %s", err)
+	cc, err := parseCharmConfig(b)
+	if err != nil {
+		return false, err
 	}
 
 	fileContents, err := ioutil.ReadFile(appYml)
@@ -193,40 +214,17 @@ func writeNewConfig() (changed bool, err error) {
 		return false, fmt.Errorf("Can't read discourse config file: %s", err)
 	}
 
-	vals := discourseConfig{}
-	if err := yaml.Unmarshal(fileContents, &vals); err != nil {
-		return false, fmt.Errorf("Error unmarshalling app.yml: %s", err)
+	dc, err := parseDiscourseConfig(fileContents)
+	if err != nil {
+		return false, err
 	}
 
-	// env is a sub-map in the yaml where our values get stored.
-	if vals.Env == nil {
-		vals.Env = map[interface{}]interface{}{}
+	dc, err = merge(dc, cc)
+	if err != nil {
+		return false, err
 	}
 
-	if cfg.DISCOURSE_DEVELOPER_EMAILS != nil {
-		emails := strings.Split(*cfg.DISCOURSE_DEVELOPER_EMAILS, ",")
-		vals.Env["DISCOURSE_DEVELOPER_EMAILS"] = emails
-	}
-	if cfg.DISCOURSE_SMTP_ADDRESS != nil {
-		vals.Env["DISCOURSE_SMTP_ADDRESS"] = *cfg.DISCOURSE_SMTP_ADDRESS
-	}
-	if cfg.DISCOURSE_SMTP_PORT != nil {
-		vals.Env["DISCOURSE_SMTP_PORT"] = *cfg.DISCOURSE_SMTP_PORT
-	}
-	if cfg.DISCOURSE_SMTP_USER_NAME != nil {
-		vals.Env["DISCOURSE_SMTP_USER_NAME"] = *cfg.DISCOURSE_SMTP_USER_NAME
-	}
-	if cfg.DISCOURSE_SMTP_PASSWORD != nil {
-		vals.Env["DISCOURSE_SMTP_PASSWORD"] = *cfg.DISCOURSE_SMTP_PASSWORD
-	}
-	if cfg.UNICORN_WORKERS != nil {
-		vals.Env["UNICORN_WORKERS"] = *cfg.UNICORN_WORKERS
-	}
-	if cfg.DISCOURSE_CDN_URL != nil {
-		vals.Env["DISCOURSE_CDN_URL"] = *cfg.DISCOURSE_CDN_URL
-	}
-
-	newContents, err := yaml.Marshal(vals)
+	newContents, err := yaml.Marshal(dc)
 	if err != nil {
 		return false, fmt.Errorf("Can't marshal app.yaml changes: %s", err)
 	}
@@ -239,6 +237,62 @@ func writeNewConfig() (changed bool, err error) {
 	}
 
 	return true, nil
+}
+
+func parseCharmConfig(b []byte) (charmConfig, error) {
+	cfg := charmConfig{}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return cfg, fmt.Errorf("Can't parse charm config: %s", err)
+	}
+	return cfg, nil
+}
+
+func parseDiscourseConfig(b []byte) (discourseConfig, error) {
+	cfg := discourseConfig{}
+	if err := yaml.Unmarshal(b, cfg); err != nil {
+		return cfg, fmt.Errorf("Error unmarshalling app.yml: %s", err)
+	}
+	return cfg, nil
+}
+
+func merge(dc discourseConfig, cc charmConfig) (discourseConfig, error) {
+	// env is a sub-map in the yaml where our values get stored.
+	env := map[interface{}]interface{}{}
+	if dc["env"] == nil {
+		dc["env"] = env
+	} else {
+		var ok bool
+		env, ok = dc["env"].(map[interface{}]interface{})
+		if !ok {
+			return nil, fmt.Errorf("unexpected type for env key in discourse config: %T", dc["env"])
+		}
+	}
+
+	if cc.DISCOURSE_DEVELOPER_EMAILS != nil {
+		env["DISCOURSE_DEVELOPER_EMAILS"] = *cc.DISCOURSE_DEVELOPER_EMAILS
+	}
+	if cc.DISCOURSE_SMTP_ADDRESS != nil {
+		env["DISCOURSE_SMTP_ADDRESS"] = *cc.DISCOURSE_SMTP_ADDRESS
+	}
+	if cc.DISCOURSE_HOSTNAME != nil {
+		env["DISCOURSE_HOSTNAME"] = *cc.DISCOURSE_HOSTNAME
+	}
+	if cc.DISCOURSE_SMTP_PORT != nil {
+		env["DISCOURSE_SMTP_PORT"] = *cc.DISCOURSE_SMTP_PORT
+	}
+	if cc.DISCOURSE_SMTP_USER_NAME != nil {
+		env["DISCOURSE_SMTP_USER_NAME"] = *cc.DISCOURSE_SMTP_USER_NAME
+	}
+	if cc.DISCOURSE_SMTP_PASSWORD != nil {
+		env["DISCOURSE_SMTP_PASSWORD"] = *cc.DISCOURSE_SMTP_PASSWORD
+	}
+	if cc.UNICORN_WORKERS != nil {
+		env["UNICORN_WORKERS"] = *cc.UNICORN_WORKERS
+	}
+	if cc.DISCOURSE_CDN_URL != nil {
+		env["DISCOURSE_CDN_URL"] = *cc.DISCOURSE_CDN_URL
+	}
+	return dc, nil
 }
 
 func installDocker() error {
@@ -309,12 +363,23 @@ func runner(name string) func(args ...string) error {
 	}
 }
 
-func defaultRunner(name string, args ...string) func(args ...string) error {
+func bash(args ...string) func(args ...string) error {
 	return func(moreArgs ...string) error {
-		cmd := exec.Command(name, append(args, moreArgs...)...)
+		cmd := exec.Command("bash", append(args, moreArgs...)...)
 		cmd.Stderr = os.Stderr
 		cmd.Stdout = os.Stdout
-		return cmd.Run()
+
+		// Open a stdinpipe and then close it, which tells the script there will
+		// be no user input.
+		in, err := cmd.StdinPipe()
+		if err != nil {
+			return fmt.Errorf("error creating stdinpipe: %s", err)
+		}
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		in.Close()
+		return cmd.Wait()
 	}
 }
 
@@ -327,21 +392,4 @@ func open(port int) error {
 		}
 	}
 	return nil
-}
-
-// this whole structure exists because we need to tell goyaml to output the
-// "expose" ports as a flow-style array so that the strings are always quoted
-// Otherwise something like 2222:22 is considered a base 60 float (like
-// hours:minutes) by other parsers and not a string.  Goyaml doesn't support
-// base 60 floats, so it doesn't care, but the ruby yaml parser that discourse
-// uses does support it and therefore does care (and treats it as a number
-// unless it's explicitly quoted) and all hell breaks loose.  Thanks, yaml.
-type discourseConfig struct {
-	Templates []string                      `yaml:"templates,omitempty"`
-	Expose    []string                      `yaml:"expose,flow,omitempty"`
-	Params    map[interface{}]interface{}   `yaml:"params,omitempty"`
-	Env       map[interface{}]interface{}   `yaml:"env,omitempty"`
-	Volumes   []map[interface{}]interface{} `yaml:"volumes,omitempty"`
-	Hooks     map[interface{}]interface{}   `yaml:"hooks,omitempty"`
-	Run       map[interface{}]interface{}   `yaml:"run,omitempty"`
 }

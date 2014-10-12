@@ -11,6 +11,3 @@ categories:
 provides:
   website:
     interface: http
-peers:
-  discourse:
-    interface: discourse

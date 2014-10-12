@@ -1,0 +1,6 @@
+#!/bin/bash
+
+apt-get install -y golang-go git
+export GOPATH=$HOME
+go get gopkg.in/yaml.v1
+go run hooks.go install
