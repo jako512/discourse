@@ -23,7 +23,7 @@ from the mail service to set as configuration on the charm.
 
 After you've successfully bootstrapped a Juju environment, run the following:
 
-    juju deploy cs:/~natefinch/discourse --config=cfg.yml --constraints mem=2g
+    juju deploy cs:~natefinch/discourse --config=cfg.yml --constraints mem=2G
     juju expose discourse
 
 Discourse recommends 2GB of RAM for a standard installation.  You can use less,
